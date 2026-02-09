@@ -1,0 +1,141 @@
+# GitHub Actions - Deploy Automático para VPS/Coolify
+# Dispara quando uma release é publicada ou manualmente
+
+name: Deploy to VPS
+
+on:
+  # Deploy automático quando criar uma release (versão estável)
+  release:
+    types: [published]
+  
+  # Permite deploy manual pelo GitHub Actions
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente de deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build e Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extrair metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build e Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  deploy:
+    name: Deploy na VPS
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          script: |
+            echo "🚀 Iniciando deploy do Monday CRM Agent..."
+            
+            # Diretório do projeto
+            cd ~/monday-crm-agent || mkdir -p ~/monday-crm-agent && cd ~/monday-crm-agent
+            
+            # Cria docker-compose se não existir
+            if [ ! -f docker-compose.yml ]; then
+              cat > docker-compose.yml << 'EOF'
+            version: '3.8'
+            services:
+              monday-bot:
+                image: ghcr.io/${{ github.repository }}:latest
+                container_name: monday-crm-bot
+                restart: unless-stopped
+                environment:
+                  - GEMINI_API_KEY=${GEMINI_API_KEY}
+                  - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash-lite}
+                  - TWENTY_API_URL=${TWENTY_API_URL}
+                  - TWENTY_API_KEY=${TWENTY_API_KEY}
+                  - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+                  - DATABASE_URL=sqlite:///app/data/monday.db
+                volumes:
+                  - ./data:/app/data
+                logging:
+                  driver: "json-file"
+                  options:
+                    max-size: "10m"
+                    max-file: "3"
+            EOF
+            fi
+            
+            # Cria arquivo .env se não existir (ou atualiza)
+            cat > .env << EOF
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+            GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}
+            TWENTY_API_URL=${{ secrets.TWENTY_API_URL }}
+            TWENTY_API_KEY=${{ secrets.TWENTY_API_KEY }}
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            EOF
+            
+            # Pull da nova imagem e restart
+            echo "📥 Baixando nova imagem..."
+            docker pull ghcr.io/${{ github.repository }}:latest
+            
+            echo "🛑 Parando container antigo..."
+            docker compose down || docker-compose down || true
+            
+            echo "▶️ Iniciando novo container..."
+            docker compose up -d || docker-compose up -d
+            
+            echo "🧹 Limpando imagens antigas..."
+            docker image prune -f
+            
+            echo "✅ Deploy concluído!"
+            echo ""
+            echo "📊 Status do container:"
+            docker ps --filter "name=monday-crm-bot" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"

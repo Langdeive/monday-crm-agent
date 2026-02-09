@@ -1,0 +1,53 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+
+# Ambiente virtual
+venv/
+.venv/
+env/
+ENV/
+
+# IDEs
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Dados locais
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Arquivos de teste
+tests.py
+test_*.py
+*_test.py
+
+# Documentação (mantém README.md)
+docs/
+*.md
+!README.md
+!DEPLOY.md
+
+# Outros
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example

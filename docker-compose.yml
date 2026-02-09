@@ -1,0 +1,44 @@
+# Docker Compose para Coolify / VPS
+# Roda apenas o bot do Telegram (sem web)
+
+version: '3.8'
+
+services:
+  monday-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: monday-crm-bot
+    restart: unless-stopped
+    
+    # Variáveis de ambiente (preencher no Coolify ou .env)
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash-lite}
+      - TWENTY_API_URL=${TWENTY_API_URL}
+      - TWENTY_API_KEY=${TWENTY_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - DATABASE_URL=sqlite:///app/data/monday.db
+    
+    # Volume para persistir o banco SQLite
+    volumes:
+      - monday-data:/app/data
+    
+    # Healthcheck simples
+    healthcheck:
+      test: ["CMD", "python", "-c", "import telegram; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  monday-data:
+    driver: local
