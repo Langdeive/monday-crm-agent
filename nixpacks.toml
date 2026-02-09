@@ -1,0 +1,11 @@
+# Configuração Nixpacks para Coolify
+# Força uso de Python 3.11 e desabilita instalações extras
+
+[phases.build]
+cmds = ["pip install -r requirements.txt"]
+
+[phases.setup]
+nixPkgs = ["python311"]
+
+[start]
+cmd = "python telegram_bot.py"
